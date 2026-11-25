@@ -105,8 +105,26 @@ static torch::Tensor get_even_sm_locality_domains() {
     return (tpc_idx % get_num_locality_domains()).to(torch::kUInt8).repeat_interleave(kNumSMsPerTPC);
 }
 
+// The `%locality_domain_id` of every SM; undefined if NVCC does not provide the register
+static torch::Tensor query_sm_locality_domains() {
+    const auto num_domains = get_num_locality_domains();
+    // Launch twice: a table only makes sense if the SM indices are stable across launches
+    const auto sm_domain = torch::full({2, jit->device.get_num_sms()}, num_domains, torch::dtype(torch::kUInt8).device(torch::kCUDA));
+    for (int i = 0; i < sm_domain.size(0); ++ i)
+        sm100_locality_domain_query(sm_domain[i]);
+    const auto tpcs = sm_domain[0].view({-1, kNumSMsPerTPC});
+    const auto valid = sm_domain.lt(num_domains).all().item<bool>();
+    const auto stable = torch::equal(sm_domain[0], sm_domain[1]);
+    const auto consistent = torch::equal(tpcs, tpcs.select(1, 0).unsqueeze(1).expand_as(tpcs));
+    return valid and stable and consistent ? sm_domain[0] : torch::Tensor();
+}
+
 // Probe multiple times; fallback when unstable
 static torch::Tensor probe_sm_locality_domains() {
+    // The register makes probing unnecessary
+    if (const auto sm_domain = query_sm_locality_domains(); sm_domain.defined())
+        return sm_domain;
+
     const auto num_sms = jit->device.get_num_sms();
     const auto buf = empty_per_domain({num_sms, kNumProbeChunksPerSM, kNumLocalityDomainProbeChunkBytes}, torch::kUInt8);
     for (int attempt = 0; attempt < kNumMaxProbeAttempts; ++ attempt) {

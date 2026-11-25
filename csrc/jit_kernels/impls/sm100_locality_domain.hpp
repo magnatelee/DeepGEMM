@@ -38,4 +38,28 @@ static void __instantiate_kernel() {{
     );
 }
 
+// `sm_domain[sm_idx]`: the `%locality_domain_id` of SM `sm_idx`, an invalid index if NVCC does not provide the register
+static void sm100_locality_domain_query(const torch::Tensor& sm_domain) {
+    // Compile
+    const auto kernel = jit->compile("sm100_locality_domain_query", std::format(R"(
+#include <deep_gemm/impls/sm100_locality_domain.cuh>
+
+using namespace deep_gemm;
+
+static void __instantiate_kernel() {{
+    auto ptr = reinterpret_cast<void*>(&locality_domain_query<{}>);
+}};
+)", sm_domain.numel()));
+
+    // Launch
+    jit->launch(
+        kernel, {
+            .num_smem_bytes = SM100ArchSpec::smem_capacity,
+            .grid_dim = dim3(jit->device.get_num_sms(), 1, 1),
+            .block_dim = dim3(32, 1, 1),
+        },
+        sm_domain.data_ptr()
+    );
+}
+
 }  // namespace deep_gemm
