@@ -14,6 +14,16 @@ CUTLASS_DEVICE uint32_t get_sm_idx() {
     return sm_idx;
 }
 
+// `%locality_domain_id` requires PTX ISA 9.5 (CUDA 13.5) and SM100; an invalid index is returned without it
+CUTLASS_DEVICE uint32_t get_locality_domain_idx() {
+    uint32_t locality_domain_idx = 0xffffffffu;
+#if defined(__CUDA_ARCH__) and (__CUDA_ARCH__ >= 1000) and \
+    ((__CUDACC_VER_MAJOR__ > 13) or ((__CUDACC_VER_MAJOR__ == 13) and (__CUDACC_VER_MINOR__ >= 5)))
+    asm ("mov.u32 %0, %%locality_domain_id;" : "=r"(locality_domain_idx));
+#endif
+    return locality_domain_idx;
+}
+
 CUTLASS_DEVICE uint32_t get_lane_idx() {
     uint32_t lane_id;
     asm ("mov.u32 %0, %%laneid;" : "=r"(lane_id));

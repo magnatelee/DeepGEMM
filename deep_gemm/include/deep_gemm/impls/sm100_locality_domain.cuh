@@ -23,4 +23,14 @@ void locality_domain_probe_chase(const uint32_t* buf, uint16_t* out) {
     }
 }
 
+template <uint32_t kNumSMs>
+CUTLASS_GLOBAL __launch_bounds__(32, 1)
+void locality_domain_query(uint8_t* out) {
+    if (threadIdx.x != 0)
+        return;
+    const auto sm_idx = ptx::get_sm_idx();
+    if (sm_idx < kNumSMs)
+        out[sm_idx] = static_cast<uint8_t>(ptx::get_locality_domain_idx());
+}
+
 }  // namespace deep_gemm
